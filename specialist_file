@@ -1,0 +1,168 @@
+Sub ExportVendorWorkbooks_UniqueVendorsWithOwners_AutoFit()
+    Dim ws As Worksheet
+    Dim newWb As Workbook
+    Dim newWs As Worksheet
+    Dim dict As Object
+    Dim vendorNumber As Variant
+    Dim vendorName As String
+    Dim spendOwner As Variant
+    Dim fileName As String
+    Dim filePath As String
+    Dim downloadsPath As String
+    Dim rowNum As Long
+    Dim i As Long
+    Dim count As Integer
+    Dim ownerDict As Object
+    Dim ownerList As String
+    Dim dataRange As Range
+    Dim lastRow As Long
+    Dim newLastRow As Long
+    Dim outlookApp As Object
+    Dim outlookMail As Object
+
+    ' Set the source worksheet
+    Set ws = ThisWorkbook.Sheets("VBA Data")
+    lastRow = ws.Cells(ws.Rows.count, "M").End(xlUp).Row
+    Set dict = CreateObject("Scripting.Dictionary")
+
+    ' Collect unique vendor numbers where column Q = "yes"
+    For i = 2 To lastRow
+        If LCase(Trim(ws.Cells(i, "Q").Value)) = "yes" Then
+            vendorNumber = ws.Cells(i, "M").Value
+            If Not dict.exists(vendorNumber) Then
+                dict.Add vendorNumber, i
+            End If
+        End If
+    Next i
+
+    downloadsPath = Environ("USERPROFILE") & "\Downloads\"
+    count = 0
+
+    ' Loop through each vendor and create a workbook
+    For Each vendorNumber In dict.Keys
+        If count >= 3 Then Exit For
+        rowNum = dict(vendorNumber)
+
+        vendorName = ws.Cells(rowNum, "N").Value
+
+        ' Collect all distinct spend_owner_full_name values
+        Set ownerDict = CreateObject("Scripting.Dictionary")
+        For i = 2 To lastRow
+            If ws.Cells(i, "M").Value = vendorNumber And LCase(Trim(ws.Cells(i, "Q").Value)) = "yes" Then
+                spendOwner = ws.Cells(i, "P").Value
+                If Not IsEmpty(spendOwner) And Not ownerDict.exists(spendOwner) Then
+                    ownerDict.Add spendOwner, True
+                End If
+            End If
+        Next i
+
+        ' Build owner list string
+        ownerList = ""
+        For Each spendOwner In ownerDict.Keys
+            ownerList = ownerList & "_" & Replace(spendOwner, " ", "_")
+        Next spendOwner
+
+        ' Build and clean file name
+        fileName = "Vendor File_" & vendorNumber & "_" & Replace(vendorName, " ", "_")
+        fileName = Replace(fileName, "\", "")
+        fileName = Replace(fileName, "/", "")
+        fileName = Replace(fileName, "*", "")
+        fileName = Replace(fileName, "?", "")
+        fileName = Replace(fileName, ":", "")
+        fileName = Replace(fileName, "[", "")
+        fileName = Replace(fileName, "]", "")
+        fileName = Replace(fileName, Chr(34), "")
+
+        filePath = downloadsPath & fileName & ".xlsx"
+
+        ' Create new workbook
+        Set newWb = Workbooks.Add
+        Set newWs = newWb.Sheets(1)
+        On Error Resume Next
+        newWs.Name = "VBA Data"
+        On Error GoTo 0
+
+        ' Add headers
+        newWs.Cells(1, 1).Value = "Material Number"
+        newWs.Cells(1, 2).Value = "Material Name"
+        newWs.Cells(1, 3).Value = "Unit of Measurement"
+        newWs.Cells(1, 4).Value = "Vendor Material"
+        newWs.Cells(1, 5).Value = "New Vendor Part Number"
+        newWs.Cells(1, 6).Value = "New Price (CUR)"
+        newWs.Cells(1, 7).Value = "New Leadtime"
+        newWs.Cells(1, 8).Value = "New UOM"
+        newWs.Cells(1, 9).Value = "Comments"
+
+        ' Format headers
+        With newWs.Range("A1:I1")
+            .Font.Bold = True
+            .Interior.Color = RGB(217, 217, 217) ' Grey shading
+            .Borders(xlEdgeBottom).LineStyle = xlContinuous
+            .Borders(xlEdgeBottom).Weight = xlThin
+        End With
+
+        ' Filter and copy data
+        ws.Rows(1).AutoFilter Field:=ws.Columns("M").Column, Criteria1:=vendorNumber
+        ws.Rows(1).AutoFilter Field:=ws.Columns("Q").Column, Criteria1:="yes"
+
+        On Error Resume Next
+        Set dataRange = ws.Range("E2:E" & lastRow).SpecialCells(xlCellTypeVisible)
+        On Error GoTo 0
+        If Not dataRange Is Nothing Then
+            dataRange.Copy Destination:=newWs.Cells(2, 1)
+        End If
+
+        On Error Resume Next
+        Set dataRange = ws.Range("F2:F" & lastRow).SpecialCells(xlCellTypeVisible)
+        On Error GoTo 0
+        If Not dataRange Is Nothing Then
+            dataRange.Copy Destination:=newWs.Cells(2, 2)
+        End If
+
+        On Error Resume Next
+        Set dataRange = ws.Range("J2:J" & lastRow).SpecialCells(xlCellTypeVisible)
+        On Error GoTo 0
+        If Not dataRange Is Nothing Then
+            dataRange.Copy Destination:=newWs.Cells(2, 3)
+        End If
+
+        On Error Resume Next
+        Set dataRange = ws.Range("O2:O" & lastRow).SpecialCells(xlCellTypeVisible)
+        On Error GoTo 0
+        If Not dataRange Is Nothing Then
+            dataRange.Copy Destination:=newWs.Cells(2, 4)
+        End If
+
+        ' Determine the last row with data in the new worksheet
+        newLastRow = newWs.Cells(newWs.Rows.count, "A").End(xlUp).Row
+
+        ' Apply grey shading to the blank cells under the specified columns
+        With newWs.Range("E2:I" & newLastRow)
+            .SpecialCells(xlCellTypeBlanks).Interior.Color = RGB(217, 217, 217) ' Grey shading
+        End With
+
+        ' Auto-fit columns
+        newWs.Columns.AutoFit
+
+        ws.AutoFilterMode = False
+
+        ' Save and close
+        newWb.SaveAs fileName:=filePath, FileFormat:=xlOpenXMLWorkbook
+        newWb.Close SaveChanges:=False
+
+        ' Create and send email with the file attached
+        Set outlookApp = CreateObject("Outlook.Application")
+        Set outlookMail = outlookApp.CreateItem(0)
+        With outlookMail
+            .Subject = fileName ' Update the email subject
+            .Body = "Please find the attached vendor file."
+            .To = "lee.whiting@riotinto.com" ' Update with the recipient's email address
+            .Attachments.Add filePath
+            .Send
+        End With
+
+        count = count + 1
+    Next vendorNumber
+
+    MsgBox "3 vendor files saved to Downloads folder and emailed with distinct owners in file name."
+End Sub
