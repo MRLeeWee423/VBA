@@ -1,0 +1,239 @@
+Sub ExportVendorAndSpecialistFiles()
+    Dim ws As Worksheet
+    Dim newWb As Workbook
+    Dim newWs As Worksheet
+    Dim vendorNumber As Variant
+    Dim vendorName As String
+    Dim spendOwner As Variant
+    Dim vendorFileName As String
+    Dim specialistFileName As String
+    Dim vendorFilePath As String
+    Dim specialistFilePath As String
+    Dim downloadsPath As String
+    Dim sharePointPath As String
+    Dim rowNum As Long
+    Dim i As Long
+    Dim ownerDict As Object
+    Dim ownerList As String
+    Dim dataRange As Range
+    Dim lastRow As Long
+    Dim newLastRow As Long
+    Dim oaOwner As String
+    Dim saveSuccess As Boolean
+    Dim maxFileNameLength As Integer
+    Dim outlookApp As Object
+    Dim outlookMail As Object
+    Dim currentMonth As String
+
+    ' Get the current month
+    currentMonth = Format(Date, "mmmm")
+
+    ' Set the source worksheet
+    Set ws = ThisWorkbook.Sheets("VBA Data")
+    lastRow = ws.Cells(ws.Rows.count, "M").End(xlUp).Row
+
+    downloadsPath = Environ("USERPROFILE") & "\Downloads\"
+    sharePointPath = "https://riotinto.sharepoint.com/sites/SharedInfo/Shared%20Documents/General/OA%20Analysis/Specialist%20Files/"
+    maxFileNameLength = 128 ' SharePoint max file name length
+
+    ' Loop through each row to find "10060129 PLASSER AUST P/L"
+    For i = 2 To lastRow
+        If LCase(Trim(ws.Cells(i, "Q").Value)) = "yes" Then
+            vendorName = ws.Cells(i, "N").Value
+            vendorNumber = ws.Cells(i, "M").Value
+            If vendorNumber = "10060129" And LCase(vendorName) = "plasser aust p/l" Then
+                rowNum = i
+                Exit For
+            End If
+        End If
+    Next i
+
+    If IsEmpty(vendorNumber) Then
+        MsgBox "10060129 PLASSER AUST P/L not found."
+        Exit Sub
+    End If
+
+    oaOwner = ws.Cells(rowNum, "S").Value ' Get OA Owner from column S
+
+    ' Collect all distinct spend_owner_full_name values
+    Set ownerDict = CreateObject("Scripting.Dictionary")
+    For i = 2 To lastRow
+        If ws.Cells(i, "M").Value = vendorNumber And LCase(Trim(ws.Cells(i, "Q").Value)) = "yes" Then
+            spendOwner = ws.Cells(i, "P").Value
+            If Not IsEmpty(spendOwner) And Not ownerDict.exists(spendOwner) Then
+                ownerDict.Add spendOwner, True
+            End If
+        End If
+    Next i
+
+    ' Build owner list string
+    ownerList = ""
+    For Each spendOwner In ownerDict.Keys
+        ownerList = ownerList & "_" & Replace(spendOwner, " ", "_")
+    Next spendOwner
+
+    ' Build and clean file names
+    vendorFileName = "Vendor_File_" & vendorNumber & "_" & Replace(vendorName, " ", "_")
+    vendorFileName = Replace(vendorFileName, "\", "")
+    vendorFileName = Replace(vendorFileName, "/", "")
+    vendorFileName = Replace(vendorFileName, "*", "")
+    vendorFileName = Replace(vendorFileName, "?", "")
+    vendorFileName = Replace(vendorFileName, ":", "")
+    vendorFileName = Replace(vendorFileName, "[", "")
+    vendorFileName = Replace(vendorFileName, "]", "")
+    vendorFileName = Replace(vendorFileName, Chr(34), "")
+
+    specialistFileName = vendorNumber & "_" & Replace(vendorName, " ", "_") & "_OA_Owner_" & Replace(oaOwner, " ", "_") & "_Spends_Owners_" & ownerList
+    specialistFileName = Replace(specialistFileName, "\", "")
+    specialistFileName = Replace(specialistFileName, "/", "")
+    specialistFileName = Replace(specialistFileName, "*", "")
+    specialistFileName = Replace(specialistFileName, "?", "")
+    specialistFileName = Replace(specialistFileName, ":", "")
+    specialistFileName = Replace(specialistFileName, "[", "")
+    specialistFileName = Replace(specialistFileName, "]", "")
+    specialistFileName = Replace(specialistFileName, Chr(34), "")
+
+    ' Truncate file names if they exceed the maximum length
+    If Len(specialistFileName) > maxFileNameLength Then
+        specialistFileName = Left(specialistFileName, maxFileNameLength)
+    End If
+
+    vendorFilePath = downloadsPath & vendorFileName & ".xlsx"
+    specialistFilePath = sharePointPath & Replace(specialistFileName, " ", "%20") & ".xlsx"
+
+    ' Create and save Vendor File
+    Set newWb = Workbooks.Add
+    Set newWs = newWb.Sheets(1)
+    On Error Resume Next
+    newWs.Name = vendorName
+    On Error GoTo 0
+
+    ' Add headers
+    newWs.Cells(1, 1).Value = "Material Number"
+    newWs.Cells(1, 2).Value = "Material Name"
+    newWs.Cells(1, 3).Value = "Unit of Measurement"
+    newWs.Cells(1, 4).Value = "Vendor Material"
+    newWs.Cells(1, 5).Value = "New Vendor Part Number"
+    newWs.Cells(1, 6).Value = "New Price (CUR)"
+    newWs.Cells(1, 7).Value = "New Leadtime"
+    newWs.Cells(1, 8).Value = "New UOM"
+    newWs.Cells(1, 9).Value = "Comments"
+
+    ' Format headers
+    With newWs.Range("A1:I1")
+        .Font.Bold = True
+        .Interior.Color = RGB(217, 217, 217) ' Grey shading
+        .Borders(xlEdgeBottom).LineStyle = xlContinuous
+        .Borders(xlEdgeBottom).Weight = xlThin
+    End With
+
+    ' Filter and copy data
+    ws.Rows(1).AutoFilter Field:=ws.Columns("M").Column, Criteria1:=vendorNumber
+    ws.Rows(1).AutoFilter Field:=ws.Columns("Q").Column, Criteria1:="yes"
+
+    On Error Resume Next
+    Set dataRange = ws.Range("E2:E" & lastRow).SpecialCells(xlCellTypeVisible)
+    On Error GoTo 0
+    If Not dataRange Is Nothing Then
+        dataRange.Copy Destination:=newWs.Cells(2, 1)
+    End If
+
+    On Error Resume Next
+    Set dataRange = ws.Range("F2:F" & lastRow).SpecialCells(xlCellTypeVisible)
+    On Error GoTo 0
+    If Not dataRange Is Nothing Then
+        dataRange.Copy Destination:=newWs.Cells(2, 2)
+    End If
+
+    On Error Resume Next
+    Set dataRange = ws.Range("J2:J" & lastRow).SpecialCells(xlCellTypeVisible)
+    On Error GoTo 0
+    If Not dataRange Is Nothing Then
+        dataRange.Copy Destination:=newWs.Cells(2, 3)
+    End If
+
+    On Error Resume Next
+    Set dataRange = ws.Range("O2:O" & lastRow).SpecialCells(xlCellTypeVisible)
+    On Error GoTo 0
+    If Not dataRange Is Nothing Then
+        dataRange.Copy Destination:=newWs.Cells(2, 4)
+    End If
+
+    ' Determine the last row with data in the new worksheet
+    newLastRow = newWs.Cells(newWs.Rows.count, "A").End(xlUp).Row
+
+    ' Apply grey shading to the blank cells under the specified columns
+    With newWs.Range("E2:I" & newLastRow)
+        .SpecialCells(xlCellTypeBlanks).Interior.Color = RGB(217, 217, 217) ' Grey shading
+    End With
+
+    ' Auto-fit columns
+    newWs.Columns.AutoFit
+
+    ws.AutoFilterMode = False
+
+    ' Save and close Vendor File
+    newWb.SaveAs fileName:=vendorFilePath, FileFormat:=xlOpenXMLWorkbook
+    newWb.Close SaveChanges:=False
+
+    ' Create and save Specialist File
+    Set newWb = Workbooks.Add
+    Set newWs = newWb.Sheets(1)
+    On Error Resume Next
+    newWs.Name = vendorName
+    On Error GoTo 0
+
+    ' Filter and copy data
+    ws.Rows(1).AutoFilter Field:=ws.Columns("M").Column, Criteria1:=vendorNumber
+    ws.Rows(1).AutoFilter Field:=ws.Columns("Q").Column, Criteria1:="yes"
+    ws.Rows(1).Copy Destination:=newWs.Rows(1)
+
+    On Error Resume Next
+    Set dataRange = ws.Range("A2", ws.Cells(lastRow, "A")).EntireRow.SpecialCells(xlCellTypeVisible)
+    On Error GoTo 0
+
+    If Not dataRange Is Nothing Then
+        dataRange.Copy Destination:=newWs.Rows(2)
+    End If
+
+    ' Auto-fit columns
+    newWs.Columns.AutoFit
+
+    ws.AutoFilterMode = False
+
+    ' Save and close Specialist File
+    On Error Resume Next
+    newWb.SaveAs fileName:=specialistFilePath, FileFormat:=xlOpenXMLWorkbook
+    If Err.Number = 0 Then
+        saveSuccess = True
+    Else
+        saveSuccess = False
+    End If
+    On Error GoTo 0
+
+    If saveSuccess Then
+        newWb.Close SaveChanges:=False
+
+        ' Create and send email with the Vendor File attached and link to Specialist File
+        Set outlookApp = CreateObject("Outlook.Application")
+        Set outlookMail = outlookApp.CreateItem(0)
+        With outlookMail
+            .Subject = "Material Leakage Data - " & vendorNumber & " " & vendorName & " - " & currentMonth
+            .Body = "Good morning," & vbCrLf & vbCrLf & _
+                    "As part of our Spend Optimisation KPIs, we're focusing on increasing usage of Automated Buy Channels. Currently, over 3,300 Material Masters (MMs) have had more than three PO items in the past year." & vbCrLf & vbCrLf & _
+                    "To streamline vendor engagement, the BPWC working group has developed an automated monthly report for category owners with active Outline Agreements (OAs). This report highlights MM leakage and includes a ready-to-send file for suppliers to request pricing and lead times." & vbCrLf & vbCrLf & _
+                    "Please find attached the file for " & vendorName & ". In order to assess the relevance of these materials, please find supporting data to assess your decision " & vbCrLf & _
+                    specialistFilePath
+            .To = "lee.whiting@riotinto.com; Steven.Harman@riotinto.com; juan.castagnino@riotinto.com"
+            .CC = "faye.yap@riotinto.com"
+            .Attachments.Add vendorFilePath
+            .Send
+        End With
+    Else
+        MsgBox "Failed to save " & specialistFileName & "."
+        newWb.Close SaveChanges:=False
+    End If
+
+    MsgBox "Vendor file saved to Downloads folder, attached to email, and emailed with SharePoint link."
+End Sub
+
