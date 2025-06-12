@@ -19,6 +19,7 @@ Sub ExportVendorAndSpecialistFiles()
     Dim outlookApp As Object
     Dim outlookMail As Object
     Dim currentMonth As String
+    Dim lastRow As Long
 
     ' Get the current month
     currentMonth = Format(Date, "mmmm")
@@ -31,25 +32,24 @@ Sub ExportVendorAndSpecialistFiles()
     sharePointPath = "https://riotinto.sharepoint.com/sites/SharedInfo/Shared%20Documents/General/OA%20Analysis/Specialist%20Files/"
     maxFileNameLength = 128 ' SharePoint max file name length
 
-    ' Loop through each row to find "10060146 VIVA ENERGY AUST LTD (LUBES ONLY)"
+    ' Loop through each row to find "10060094 J BLACKWOOD & SON LTD"
     For i = 2 To lastRow
         If LCase(Trim(ws.Cells(i, "Q").Value)) = "yes" Then
             vendorName = ws.Cells(i, "N").Value
             vendorNumber = ws.Cells(i, "M").Value
-            If vendorNumber = "10060146" And LCase(vendorName) = "viva energy aust ltd (lubes only)" Then
+            If vendorNumber = "10060094" And LCase(vendorName) = "j blackwood & son ltd" Then
                 rowNum = i
+                ' Assign OA Owner and extract First Name
+                oaOwner = ws.Cells(rowNum, "R").Value
+                If oaOwner <> "" Then
+                    oaOwnerFirstName = Split(oaOwner, " ")(0) ' Extract the first name
+                Else
+                    oaOwnerFirstName = "Valued Partner" ' Default name if empty
+                End If
                 Exit For
             End If
         End If
     Next i
-
-    If IsEmpty(vendorNumber) Then
-        MsgBox "10060146 VIVA ENERGY AUST LTD (LUBES ONLY) not found."
-        Exit Sub
-    End If
-
-    oaOwner = ws.Cells(rowNum, "R").Value ' Get OA Owner from column R
-    oaOwnerFirstName = VBA.Split(oaOwner, " ")(0) ' Get only the first name
 
     ' Build and clean file names
     vendorFileName = "Vendor_File_" & vendorNumber & "_" & Replace(vendorName, " ", "_")
@@ -201,15 +201,24 @@ Sub ExportVendorAndSpecialistFiles()
         Set outlookMail = outlookApp.CreateItem(0)
         With outlookMail
             .Subject = "Material Leakage Data - " & vendorNumber & " " & vendorName & " - " & currentMonth
-            .Body = "Hi " & oaOwnerFirstName & "," & vbCrLf & vbCrLf & _
-                    "As part of our Spend Optimisation KPIs, we're focusing on increasing usage of Automated Buy Channels. Currently, over 2,000 (RTIO only) Material Masters (MMs) have had more than three purchases in the past year." & vbCrLf & vbCrLf & _
-                    "To streamline vendor engagement, the BPWC working group has developed an automated monthly report for oa owners with active Outline Agreements (OAs). This report highlights MM leakage and includes a ready-to-send file for suppliers to request pricing and any other updates." & vbCrLf & vbCrLf & _
-                    "Please find attached the file for " & vendorName & ". In order to assess the relevance of these materials, please find supporting data to assess your decision. Please note the following link is considered sensitive price information and must not be sent to the supplier " & _
-                    specialistFilePath & vbCrLf & vbCrLf & _
-                    "Please help us improve this process by answering a quick survey to help us tailor this process to your needs: https://forms.office.com/Pages/DesignPageV2.aspx?subpage=design&id=gN9BQ-b7v0GJsObiN5ycI0OWHt_TZsJJt9a23Oa0pLVURUw3WkNMM0U0RlUzNDJVWE5RRDREM1lOQiQlQCN0PWcu" & vbCrLf & vbCrLf & _
-                    "This data is sourced from the PAnDa Buy Channel Dashboard: https://app.powerbi.com/groups/me/apps/1750078c-05c9-4ed9-8cc3-029fb7747723/reports/bf75af16-56d2-4f75-a4d8-a86112174ae4/ReportSectiona62c4085d45a75207ce1?ctid=4341df80-fbe6-41bf-89b0-e6e2379c9c23&experience=power-bi"
-            .To = "JAMES.KEILLOR@riotinto.com" ' Primary email address
-            .CC = "lee.whiting@riotinto.com; Steven.Harman@riotinto.com; Juan.Castagnino@riotinto.com; faye.yap@riotinto.com; Sahan.Abeysinghe@riotinto.com" ' CC email addresses
+            .BodyFormat = 2 ' olFormatHTML
+        .HTMLBody = "<p>Hi " & oaOwnerFirstName & ",</p>" & _
+                    "<p>As part of our Spend Optimisation KPIs, we're focusing on increasing usage of Automated Buy Channels. " & _
+                    "Currently, over 2,000 (RTIO only) Material Masters (MMs) have had more than three PO purchases in the past year.</p>" & _
+                    "<p>To streamline vendor engagement, the BPWC working group has developed an automated monthly report for OA owners " & _
+                    "that highlights MM leakage and includes a ready-to-send file for suppliers to request pricing and any other updates.</p>" & _
+                    "<p>Please find attached the file to action your supplier, " & vendorName & " - To assess the suitability of these materials " & _
+                    "for inclusion in an OA, please review the data using the OA Owner Report linked below:</p>" & _
+                    "<p><strong>Important:</strong> The following link contains sensitive pricing information and must not be shared with the supplier: " & _
+                    "<a href='" & specialistFilePath & "'>OA Owner Report – " & vendorName & "</a></p>" & _
+                    "<p>Please help us improve this process by answering a quick survey to help us tailor this process to your needs: " & _
+                    "<a href='https://forms.office.com/Pages/DesignPageV2.aspx?subpage=design&id=gN9BQ-b7v0GJsObiN5ycI0OWHt_TZsJJt9a23Oa0pLVURUw3WkNMM0U0RlUzNDJVWE5RRDREM1lOQiQlQCN0PWcu'>Survey Link</a></p>" & _
+                    "<p>This data is sourced from the PAnDa Buy Channel Dashboard: " & _
+                    "<a href='https://app.powerbi.com/groups/me/apps/1750078c-05c9-4ed9-8cc3-029fb7747723/reports/bf75af16-56d2-4f75-a4d8-a86112174ae4/ReportSectiona62c4085d45a75207ce1?ctid=4341df80-fbe6-41bf-89b0-e6e2379c9c23&experience=power-bi'>Dashboard Link</a></p>" & _
+                    "<p>Thanks,</p>" & _
+                    "<p>BPWC Spend Optimisation Working Group</p>"
+            .To = "lee.whiting@riotinto.com" ' Primary email address
+            .CC = "lee.whiting@riotinto.com" ' CC email addresses
             .Attachments.Add vendorFilePath
             .Send
         End With
@@ -220,4 +229,7 @@ Sub ExportVendorAndSpecialistFiles()
 
     MsgBox "Vendor file saved to Downloads folder, attached to email, and emailed with SharePoint link."
 End Sub
+
+
+
 
